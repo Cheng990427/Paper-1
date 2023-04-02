@@ -1,0 +1,134 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Oct 27 12:48:46 2022
+
+@author: 18376
+"""
+
+import os
+import mne
+import pickle
+from multiprocessing import Pool
+from mne.preprocessing import ICA
+import numpy as np
+# import imageio
+def Pre_process(file):
+    raw=mne.io.read_raw_brainvision(file, preload = True)
+    global subject,group
+    file=file.lstrip("..\\data\\")
+    file=file.rstrip(".vhdr")
+    subject=file.split("_")[0]
+    group=file.split("_")[1]
+    raw=mne.set_eeg_reference(raw,ref_channels=["TP10"])[0]
+    raw=raw.drop_channels(['TP10'])
+    chan_names=raw.info["ch_names"]
+    # raw.plot()
+    chan_type_dict = {chan_names[i]:'eeg' for i in range(len(chan_names))}
+    chan_type_dict["VEOG"]="eog"
+    chan_type_dict["HEOG"]="eog"
+    raw.set_channel_types(chan_type_dict)
+    montage=mne.channels.make_standard_montage("standard_1020")
+    raw.set_montage(montage)
+    # raw.plot_sensors(ch_type = 'eeg', show_names = True, sphere = 0.105)
+    # raw.plot_psd(fmin = 1, fmax = 70,spatial_colors = True)
+    # bad_channels, _ = mne.preprocessing.find_bad_channels_maxwell(raw, origin=(0., 0., 0.))
+    # raw.info['bads'] = bad_channels
+    # print(bad_channels)
+    raw = raw.interpolate_bads(reset_bads=True,mode="accurate")
+    raw = raw.filter(l_freq =0.1, h_freq = 30,picks="eeg")
+    raw = raw.notch_filter(50,notch_widths = 4)
+    # raw.plot_psd(fmin = 1, fmax = 70,spatial_colors = True)
+    events, event_id =mne.events_from_annotations(raw)
+    # print(event_id)
+    #定义想要对什么marker的数据进行分段
+    # num_of_trial = []
+    # evokes = []
+    # raw.plot(duration=3,n_channels=5)
+    # print(raw.info["ch_names"])
+    tmin = -0.5
+    tmax = 4
+    Conditions = ["Pos","Neu","Neg"]
+    for i in range(3):
+        #保存刚分段好的数据
+        #用pickle 把 my_epohcs 变量存成 my_epochs.pkl 文件
+        global condition
+        condition=Conditions[i]
+        if group=="social1":
+            try:
+                epochs = mne.Epochs(raw, events, event_id=11+i, 
+                                    tmin=tmin, tmax=tmax,
+                                    detrend = 1,
+                                    preload=True)
+                epochs = ICA_running(epochs)
+                output_path=r'...\Epoch\Attend-{}-{}-Epoch.pkl'.format(condition,subject)
+                save(epochs,output_path)
+                data=TFR_morlet(epochs)
+                Get_ERO_Picture(data)
+            except:
+                pass
+
+        else:
+            try:
+                epochs = mne.Epochs(raw, events, event_id=21+i, 
+                                    tmin=tmin, tmax=tmax,
+                                    detrend = 1,
+                                    preload=True)
+                epochs = ICA_running(epochs)
+                output_path=r'...\Epoch\Reappraisal-{}-{}-Epoch.pkl'.format(condition,subject)
+                save(epochs,output_path)
+                data=TFR_morlet(epochs)
+                Get_ERO_Picture(data)
+            except:
+                pass
+
+        
+def save(data,dirpath):
+    output = open(dirpath,'wb')
+    pickle.dump(data, output)
+    output.close()
+
+def ICA_running(my_epoch):
+    # my_epoch.plot(n_epochs=1,n_channels=6)
+    ica = ICA(n_components=29,max_iter = 'auto', fit_params=None,method="fastica", random_state=97)
+    ica.fit(my_epoch.copy().filter(l_freq=1,h_freq=30))
+    eog_idx_auto, scores = ica.find_bads_eog(my_epoch,ch_name=["VEOG","HEOG"],threshold=0.5, measure='correlation')
+    
+    muscle_idx_auto,scores = ica.find_bads_muscle(my_epoch, threshold=0.3, start=None, stop=None, l_freq=7, h_freq=45, 
+                                                  sphere=None, verbose=None)
+    ica.exclude=eog_idx_auto+muscle_idx_auto
+    ica.apply(my_epoch,on_baseline="reapply",n_pca_components=15)
+    # my_epoch.plot(n_epochs=1,n_channels=6)
+    return(my_epoch)
+
+def TFR_morlet(epoch):
+    freqs=np.arange(5,36,1)
+    # global power,data
+    picks = ["F3","F4","F7","F8"]
+    power=mne.time_frequency.tfr_morlet(epoch.pick(picks), freqs=freqs, n_cycles=2, use_fft=False, return_itc=False, decim=1, n_jobs=10, picks=None, zero_mean=True, average=False, output='power', verbose=None)
+    global data
+    data=power.data
+    return(data)
+
+def Get_ERO_Picture(data):
+    shape=data.shape
+    global data_re
+    data_re=data.reshape(shape[0],-1,shape[3])
+    data_re=data_re*10**12
+    #shape: (n_trial, n_channel, n_freqs, n_time)
+    for i in range(shape[0]):
+        if group=="social1":
+            np.save(r"...\Attend-{}-{}-{}.npy".format(condition,subject,i+1),data_re[i])
+        else:
+            np.save(r"...\Reappraisal-{}-{}-{}.npy".format(condition,subject,i+1),data_re[i])
+
+
+if __name__=="__main__":
+    files=os.listdir(r"...\data")
+    F=[]
+    for file in files:
+        if ".vhdr" in file:
+            file=os.path.join(r"...\data",file)
+            F.append(file)
+    p=Pool(18)
+    p.map(Pre_process,F)
+
