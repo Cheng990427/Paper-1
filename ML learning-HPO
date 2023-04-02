@@ -1,0 +1,147 @@
+import pandas as pd
+import numpy as np
+import xgboost as xgb
+from xgboost import plot_importance
+from matplotlib import pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error,accuracy_score
+import pickle
+from sklearn.metrics import roc_curve, auc
+import os
+import torch
+import random
+import matplotlib.pyplot as plt
+import tkinter
+import tkinter.ttk
+import time
+
+
+# 这里不固定 random 模块的随机种子，因为 random 模块后续要用于超参组合随机组合。
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    if torch.cuda.is_available():
+       	torch.cuda.manual_seed_all(seed)
+       	torch.backends.cudnn.deterministic = True
+       	torch.backends.cudnn.benchmark = False
+        
+
+root = tkinter.Tk()
+root.geometry('1200x100')
+# root['height']=300
+# root['width']=1200
+root.title('进度条')
+
+def Pro_Bar(root):
+
+    progressbarOne = tkinter.ttk.Progressbar(root)
+    progressbarOne.pack(pady=20)
+    # 进度值最大值
+
+    progressbarOne['maximum'] = 1000
+    # 进度值初始值
+    progressbarOne['value'] = 0
+    progressbarOne['length'] = 1000
+    def HPO():
+        data=pd.read_csv(r"data.csv")
+        y_class=dict(Attend=0,Reappraisal=1)
+        data["2400"]=data["2400"].map(y_class)
+        X=data.iloc[:,1:-2]
+        # # 归一化 Not good
+        # zscore = preprocessing.StandardScaler()
+        # X = zscore.fit_transform(X)
+        y=data.iloc[:,2401]
+        # # split data into X and y
+        # train_X, test_X, train_y, test_y = train_test_split(X, y.values, test_size=0.2)
+
+
+        set_seed(42) # 为了模型除超参外其他部分的复现
+        param_grid = {'objective':['binary:logistic'],
+                      'learning_rate': [0.05,0.35,0.05], #so called `eta` value
+                      'max_depth': [1,50,1],
+                      'n_estimators': [100,1100,100],
+                      'min_child_weight':[3,8,1],
+                      'booster': ['gbtree'],
+                      'colsample_bytree':[1],
+                      'gamma':[0],
+                      'subsample': [0.4,1,0.1],
+                      'seed': [1444]
+                      }
+        MAX_EVALS = 1000
+
+        # 记录用
+        best_score = 0
+        best_hyperparams = {}
+        # 可视化
+        plt.axis([0, 1000, 0, 1])
+        plt.ion()
+        xs = [0, 0]
+        ys = [1, 1]
+        for i in range(MAX_EVALS):
+            random.seed(i)	# 设置随机种子，每次搜索设置不同的种子，若种子固定，那每次选取的超参都是一样的
+            hyperparameters = {k: random.sample(v, 1)[0] for k, v in param_grid.items()}
+            objective = hyperparameters['objective']
+            learning_rate = hyperparameters['learning_rate']
+            max_depth = hyperparameters['max_depth']
+            n_estimators = hyperparameters['n_estimators']
+            min_child_weight = hyperparameters['min_child_weight']
+            booster = hyperparameters['booster']
+            colsample_bytree = hyperparameters['colsample_bytree']
+            gamma = hyperparameters['gamma']
+            subsample = hyperparameters['subsample']
+            seed = hyperparameters['seed']
+            
+            model = xgb.XGBClassifier(objective=objective,
+                                      learning_rate=learning_rate,
+                                      max_depth = max_depth,
+                                      n_estimators = n_estimators,
+                                      min_child_weight = min_child_weight,
+                                      booster = booster,
+                                      colsample_bytree = colsample_bytree,
+                                      gamma = gamma,
+                                      subsample = subsample,
+                                      seed = seed)  # xgb.XGBClassifier() XGBoost分类模型;xgb.XGBRegressor
+            model.fit(X, y, verbose=2)
+            y_prob=model.predict_proba(X)[:,1]
+            fpr, tpr, thresholds = roc_curve(y, y_prob)
+            score = auc(fpr, tpr)
+            xs[0] = xs[1]
+            ys[0] = ys[1]
+            xs[1] = i
+            ys[1] = score
+        
+            if score > best_score:
+                best_hyperparams = hyperparameters
+                with open(r"Best_parameters.txt",'w') as f:
+                    f.write(str(best_hyperparams))
+                    f.close()
+                best_score = score
+                # 你还可以在这一步保存模型，以最终得到最优的模型，如
+                output = open(r"Best_model.pkl","wb")
+                pickle.dump(model, output)
+                output.close()
+                # 对于模型的保存与读取相关方法，请你查询 pytorch 官方文档
+            plt.plot(xs, ys)
+            # plt.text(x=1.1,y=1.1,s="Best score: {}".format(str(best_score)))
+            plt.pause(0.1)
+        
+            # 每次更新加1
+            progressbarOne['value'] = i + 1
+
+            text.set('Best AUC score: {:.4f}'.format(best_score))
+
+            # 更新画面
+            root.update()
+            time.sleep(0.1)
+    text=tkinter.StringVar()
+    text.set('Best AUC score: 0.0000')
+    text1=tkinter.Label(root,textvariable=text)
+    text1.pack()
+    text1.place(x=200,y=50)
+    btn=tkinter.Button(root,text="Run",command=HPO)
+    btn.place(x=600,y=50)
+
+if __name__=='__main__':
+    Pro_Bar(root)
+    root.mainloop()
