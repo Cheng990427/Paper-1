@@ -1,0 +1,26 @@
+import numpy as np
+import pandas as pd
+import os
+
+#读入单独trial的TFR图
+def Get_feature(file):
+    data = np.load(file)
+    file=file.rstrip(".npy")
+    data=data[:,126:]
+    # data: (120,1000)
+    data=data.reshape(120,20,50).mean(axis=2)
+    data=data.reshape(-1)
+    data=list(data)
+    Task=file.split("-")[0]
+    condition=file.split("-")[1]
+    data.append(Task)
+    data.append(condition)
+    return(data)
+    
+if __name__=="__main__":
+    os.chdir(r"...\TFR")
+    features=[]
+    for file in os.listdir(r"...\TFR"):
+        features.append(Get_feature(file))
+    df=pd.DataFrame(features)
+    df.to_csv("data.csv")
