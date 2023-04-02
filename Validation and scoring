@@ -1,0 +1,109 @@
+import pandas as pd
+import numpy as np
+import xgboost as xgb
+from xgboost import plot_importance
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score
+import pickle
+from sklearn.metrics import roc_curve, auc,roc_auc_score
+import os
+import torch
+import random
+from sklearn.metrics import recall_score,f1_score,precision_score,accuracy_score
+from sklearn.metrics import brier_score_loss
+
+
+file = open(r"D:\2023-deep learning-ERP\Model 2\Best_model.pkl","rb")
+model = pickle.load(file)
+file.close()
+
+data=pd.read_csv(r"D:\2023-deep learning-ERP\Model 2\data.csv")
+y_class=dict(Attend=0,Reappraisal=1)
+data["2400"]=data["2400"].map(y_class)
+X=data.iloc[:,1:-2]
+
+y=data.iloc[:,2401]
+# 划分训练集和验证集
+train_X, test_X, train_y, test_y = train_test_split(X, y.values, test_size=0.2)
+
+model.fit(train_X, train_y, verbose=False)
+
+validation
+validation=cross_val_score(model,train_X,train_y,cv=10,scoring="accuracy",n_jobs=18)
+
+print(validation)
+
+
+def get_brier(test_y,y_prob):  
+    # 布利尔分数
+    Ytest_copy = test_y.copy()
+    Ytest_copy = pd.get_dummies(Ytest_copy)
+    for i in range(2):
+        return(brier_score_loss(Ytest_copy[i], y_prob[:, i], pos_label=i))
+from scipy.stats import norm
+
+def CI(score):
+    alpha = 0.05
+    n1, n2 = 10530/2, 10530/2
+    q1 = score / (2-score)
+    q2 = (2 * score ** 2) / (1 + score)
+    se = np.sqrt((score * (1 - score) + (n1 - 1) * (q1 - score ** 2) + (n2 -1) * (q2 - score ** 2)) / (n1 * n2))
+    confidence_level = 1 - alpha
+    z_lower, z_upper = norm.interval(confidence_level)
+    lowerb, upperb = score + z_lower * se, score + z_upper * se
+    return (lowerb, upperb)
+    
+y_pred = model.predict(test_X)
+y_prob=model.predict_proba(test_X)[:,1]
+fpr, tpr, thresholds = roc_curve(test_y, y_prob)
+auc = auc(fpr, tpr)
+accuracy = accuracy_score(test_y,y_pred)
+recall =  recall_score(test_y,y_pred)
+precision = precision_score(test_y,y_pred)
+f1 = f1_score(test_y,y_pred)
+brier=get_brier(test_y, model.predict_proba(test_X))
+print('recall ratio:%2.f%%'%(recall*100))
+print('precision:%2.f%%'%(precision*100))
+print('f1 score:%2.f%%'%(f1*100)) 
+print('accuracy:%2.f%%'%(accuracy*100))
+print("auc:{}".format(auc))
+print('brier:%2.f%%'%(brier*100))
+# # 对测试集进行预测
+
+acc_CI=CI(accuracy)
+precision_CI=CI(precision)
+recall_CI=CI(recall)
+f1_CI=CI(f1)
+AUC_CI=CI(auc)
+brier_CI=CI(brier)
+print("Accuracy 95% CI:{}".format(acc_CI))
+print("Recall 95% CI:{}".format(recall_CI))
+print("precision 95% CI:{}".format(precision_CI))
+print("F1 95% CI:{}".format(f1_CI))
+print("AUC 95% CI:{}".format(AUC_CI))
+print("Brier 95% CI:{}".format(briver_CI))
+
+Low_CI_bound=CI(tpr)[0]
+High_CI_bound=CI(tpr)[1]
+
+
+# plot confidence interval
+plt.plot(fpr,tpr,color="red",label="AUC = {:.2f}, 95% CI: [{:.2f}, {:.2f}]".format(auc,AUC_CI[0],AUC_CI[1]))
+plt.fill_between(fpr,Low_CI_bound, High_CI_bound,color="red", alpha=0.2)
+plt.plot([0, 1], [0, 1], color="navy", linestyle="--")
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC curve")
+plt.legend(loc="lower right")
+output=open(r"ROC.pkl",'wb')
+pickle.dump(fpr,output)
+pickle.dump(tpr,output)
+pickle.dump(Low_CI_bound,output)
+pickle.dump(High_CI_bound,output)
+output.close()
+figure=plt.gcf()
+figure.savefig(r"ROC.png",dpi=1200)
+# plt.savefig('auc_roc.pdf')
+plt.show()
